@@ -4,7 +4,59 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحويل الفيديو إلى نص</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        @media print {
+            body {
+                background: white !important;
+                color: black !important;
+                padding: 0;
+                margin: 0;
+            }
+            .container {
+                background: white !important;
+                box-shadow: none !important;
+                border: none !important;
+                max-width: 100% !important;
+                padding: 10mm !important;
+                backdrop-filter: none !important;
+            }
+            h1 { color: #302b63 !important; -webkit-text-fill-color: #302b63 !important; background: none !important; }
+            .subtitle { color: #555 !important; }
+            .upload-area, .btn, .progress-container, .error-box,
+            .copy-btn, .download-btn, .tabs, #segmentsTab { display: none !important; }
+            .result-container { display: block !important; margin-top: 0 !important; }
+            .result-header h3 { color: #302b63 !important; }
+            .lang-badge { background: #eee !important; color: #302b63 !important; border: 1px solid #ccc; }
+            .transcript-box {
+                background: white !important;
+                border: 1px solid #ddd !important;
+                color: black !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            #fullTab { display: block !important; }
+            #segmentsTab-print { display: block !important; }
+            .segments-box {
+                background: white !important;
+                border: 1px solid #ddd !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            .segment { border-bottom: 1px solid #eee !important; }
+            .segment .time { color: #7b2d8b !important; }
+            .segment .text { color: #222 !important; }
+            .print-section-title {
+                font-size: 13pt;
+                font-weight: bold;
+                color: #302b63;
+                margin: 16px 0 8px 0;
+                border-bottom: 2px solid #302b63;
+                padding-bottom: 4px;
+            }
+        }
+        /* إخفاء قسم الطباعة في الشاشة العادية */
+        #segmentsTab-print { display: none; }
+    </style>
     <style>
         * {
             margin: 0;
@@ -348,6 +400,14 @@
             <div id="segmentsTab" style="display:none;">
                 <div class="segments-box" id="segmentsBox"></div>
             </div>
+
+            <!-- قسم مخصص للطباعة فقط -->
+            <div id="segmentsTab-print">
+                <div class="print-section-title">النص الكامل</div>
+                <div id="printFullText" style="line-height:1.9; font-size:11pt;"></div>
+                <div class="print-section-title" style="margin-top:20px;">النص مع التوقيتات</div>
+                <div class="segments-box" id="printSegmentsBox" style="border:none;padding:0;"></div>
+            </div>
         </div>
     </div>
 
@@ -644,105 +704,14 @@
         }
 
         function downloadPDF() {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            // نملأ قسم الطباعة بالبيانات
+            document.getElementById('printFullText').textContent = fullTranscript;
 
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 15;
-            const contentWidth = pageWidth - margin * 2;
-            let y = margin;
+            const printSegments = document.getElementById('printSegmentsBox');
+            printSegments.innerHTML = document.getElementById('segmentsBox').innerHTML;
 
-            // ===== Header =====
-            doc.setFillColor(48, 43, 99);
-            doc.rect(0, 0, pageWidth, 28, 'F');
-            doc.setTextColor(255, 210, 0);
-            doc.setFontSize(16);
-            doc.text('Script Transcript', pageWidth / 2, 12, { align: 'center' });
-            doc.setFontSize(9);
-            doc.setTextColor(200, 200, 200);
-            const lang = document.getElementById('langBadge').textContent;
-            doc.text(`${lang}   |   ${new Date().toLocaleDateString('ar-SA')}`, pageWidth / 2, 22, { align: 'center' });
-
-            y = 38;
-
-            // ===== النص الكامل =====
-            doc.setFillColor(240, 240, 250);
-            doc.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
-            doc.setTextColor(48, 43, 99);
-            doc.setFontSize(11);
-            doc.text('النص الكامل', margin + 4, y + 5.5);
-            y += 13;
-
-            doc.setTextColor(30, 30, 30);
-            doc.setFontSize(10);
-            const fullLines = doc.splitTextToSize(fullTranscript, contentWidth);
-            for (const line of fullLines) {
-                if (y + 7 > pageHeight - margin) { doc.addPage(); y = margin; }
-                doc.text(line, margin, y);
-                y += 6;
-            }
-
-            y += 8;
-
-            // ===== التوقيتات =====
-            const segments = document.querySelectorAll('#segmentsBox .segment');
-            if (segments.length > 0) {
-                if (y + 10 > pageHeight - margin) { doc.addPage(); y = margin; }
-
-                doc.setFillColor(240, 240, 250);
-                doc.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
-                doc.setTextColor(48, 43, 99);
-                doc.setFontSize(11);
-                doc.text('النص مع التوقيتات', margin + 4, y + 5.5);
-                y += 13;
-
-                let rowIndex = 0;
-                for (const seg of segments) {
-                    const time = seg.querySelector('.time').textContent.trim();
-                    const text = seg.querySelector('.text').textContent.trim();
-
-                    if (y + 9 > pageHeight - margin) { doc.addPage(); y = margin; }
-
-                    // صف ملون بالتناوب
-                    if (rowIndex % 2 === 0) {
-                        doc.setFillColor(248, 248, 255);
-                        doc.rect(margin, y - 4, contentWidth, 8, 'F');
-                    }
-
-                    // وقت
-                    doc.setTextColor(180, 50, 180);
-                    doc.setFontSize(8);
-                    doc.text(time, margin + 2, y + 1);
-
-                    // نص
-                    doc.setTextColor(30, 30, 30);
-                    doc.setFontSize(9.5);
-                    const segLines = doc.splitTextToSize(text, contentWidth - 35);
-                    doc.text(segLines[0] || '', margin + 36, y + 1);
-
-                    y += 8;
-                    rowIndex++;
-
-                    // أسطر إضافية إذا كان النص طويل
-                    for (let li = 1; li < segLines.length; li++) {
-                        if (y + 7 > pageHeight - margin) { doc.addPage(); y = margin; }
-                        doc.text(segLines[li], margin + 36, y);
-                        y += 6;
-                    }
-                }
-            }
-
-            // ===== Footer =====
-            const totalPages = doc.internal.getNumberOfPages();
-            for (let p = 1; p <= totalPages; p++) {
-                doc.setPage(p);
-                doc.setFontSize(8);
-                doc.setTextColor(150, 150, 150);
-                doc.text(`${p} / ${totalPages}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
-            }
-
-            doc.save('transcript.pdf');
+            // طباعة الصفحة كـ PDF
+            window.print();
         }
     </script>
 </body>
