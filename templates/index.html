@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحويل الفيديو إلى نص</title>
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -348,63 +346,83 @@
         let selectedFile = null;
         let fullTranscript = '';
 
-        // ========== FFmpeg Setup ==========
-        const { FFmpeg } = FFmpegWASM;
-        const { fetchFile } = FFmpegUtil;
-        let ffmpeg = null;
-        let ffmpegLoaded = false;
+        // ========== استخراج الصوت باستخدام Web Audio API ==========
+        async function extractAudioAsWav(file) {
+            progressText.textContent = '🎵 جاري استخراج الصوت من الفيديو...';
 
-        async function loadFFmpeg() {
-            if (ffmpegLoaded) return;
-            ffmpeg = new FFmpeg();
-            ffmpeg.on('log', ({ message }) => {
-                console.log('[FFmpeg]', message);
+            // قراءة الملف كـ ArrayBuffer
+            const arrayBuffer = await file.arrayBuffer();
+
+            // إنشاء AudioContext لفك تشفير الصوت
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000  // 16kHz كافي لـ Whisper
             });
-            ffmpeg.on('progress', ({ progress }) => {
-                const pct = Math.round(progress * 100);
-                progressText.textContent = `🎵 جاري استخراج الصوت... ${pct}%`;
-            });
-            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-            await ffmpeg.load({
-                coreURL: `${baseURL}/ffmpeg-core.js`,
-                wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-            });
-            ffmpegLoaded = true;
+
+            // فك تشفير الصوت من الفيديو
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // تحويل إلى مونو (قناة واحدة)
+            const numberOfChannels = 1;
+            const sampleRate = 16000;
+            const length = audioBuffer.length;
+
+            // خلط كل القنوات في قناة واحدة
+            const monoData = new Float32Array(length);
+            for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+                const channelData = audioBuffer.getChannelData(ch);
+                for (let i = 0; i < length; i++) {
+                    monoData[i] += channelData[i] / audioBuffer.numberOfChannels;
+                }
+            }
+
+            // تحويل إلى WAV format
+            const wavBlob = encodeWAV(monoData, sampleRate);
+
+            audioContext.close();
+
+            return new File([wavBlob], 'audio.wav', { type: 'audio/wav' });
         }
 
-        async function extractAudioAsMP3(file) {
-            await loadFFmpeg();
+        function encodeWAV(samples, sampleRate) {
+            // تحويل Float32 إلى Int16
+            const int16 = new Int16Array(samples.length);
+            for (let i = 0; i < samples.length; i++) {
+                const s = Math.max(-1, Math.min(1, samples[i]));
+                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
 
-            const inputName = 'input' + getExtension(file.name);
-            const outputName = 'output.mp3';
+            const buffer = new ArrayBuffer(44 + int16.length * 2);
+            const view = new DataView(buffer);
 
-            // كتابة الملف داخل FFmpeg
-            await ffmpeg.writeFile(inputName, await fetchFile(file));
+            // WAV Header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + int16.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);           // فرعي حجم
+            view.setUint16(20, 1, true);             // PCM format
+            view.setUint16(22, 1, true);             // مونو
+            view.setUint32(24, sampleRate, true);    // sample rate
+            view.setUint32(28, sampleRate * 2, true); // byte rate
+            view.setUint16(32, 2, true);             // block align
+            view.setUint16(34, 16, true);            // bits per sample
 
-            // استخراج الصوت وتحويله MP3 بجودة مناسبة (bitrate 64k عشان يكون خفيف)
-            await ffmpeg.exec([
-                '-i', inputName,
-                '-vn',                // بدون فيديو
-                '-acodec', 'libmp3lame',
-                '-ab', '64k',         // 64kbps كافي للكلام
-                '-ar', '16000',       // 16kHz كافي لـ Whisper
-                '-ac', '1',           // مونو (قناة وحدة)
-                outputName
-            ]);
+            writeString(view, 36, 'data');
+            view.setUint32(40, int16.length * 2, true);
 
-            // قراءة الملف الناتج
-            const data = await ffmpeg.readFile(outputName);
+            // كتابة البيانات الصوتية
+            const offset = 44;
+            for (let i = 0; i < int16.length; i++) {
+                view.setInt16(offset + i * 2, int16[i], true);
+            }
 
-            // تنظيف
-            await ffmpeg.deleteFile(inputName);
-            await ffmpeg.deleteFile(outputName);
-
-            return new File([data.buffer], 'audio.mp3', { type: 'audio/mpeg' });
+            return new Blob([buffer], { type: 'audio/wav' });
         }
 
-        function getExtension(filename) {
-            const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
-            return ext || '.mp4';
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
         }
 
         // ========== UI Events ==========
@@ -456,25 +474,29 @@
             errorBox.style.display = 'none';
 
             try {
-                // === الخطوة 1: استخراج الصوت MP3 في المتصفح ===
-                progressText.textContent = '⏳ جاري تحميل محرك استخراج الصوت...';
                 let audioFile;
 
-                // إذا الملف أصلاً صوت وحجمه صغير، نرسله مباشرة
+                // إذا الملف أصلاً صوت وحجمه أقل من 4MB، نرسله مباشرة
                 const isAudio = selectedFile.type.startsWith('audio/');
-                const isSmall = selectedFile.size < 4 * 1024 * 1024; // أقل من 4MB
+                const isSmall = selectedFile.size < 4 * 1024 * 1024;
 
                 if (isAudio && isSmall) {
                     audioFile = selectedFile;
                     progressText.textContent = '🎵 الملف صوتي وخفيف، يتم إرساله مباشرة...';
                 } else {
-                    audioFile = await extractAudioAsMP3(selectedFile);
+                    // استخراج الصوت في المتصفح
+                    audioFile = await extractAudioAsWav(selectedFile);
                     const audioSizeMB = (audioFile.size / (1024 * 1024)).toFixed(2);
                     console.log(`✅ تم استخراج الصوت: ${audioSizeMB} MB`);
                     progressText.textContent = `✅ تم استخراج الصوت (${audioSizeMB} MB)، جاري الإرسال...`;
                 }
 
-                // === الخطوة 2: إرسال الصوت للسيرفر ===
+                // التحقق إن الصوت المستخرج ما يتجاوز حد Vercel
+                if (audioFile.size > 4.5 * 1024 * 1024) {
+                    throw new Error('حجم الصوت المستخرج أكبر من 4.5 MB. جرب ملف أقصر.');
+                }
+
+                // إرسال الصوت للسيرفر
                 progressText.textContent = '📤 جاري رفع الصوت وتحويله إلى نص...';
 
                 const formData = new FormData();

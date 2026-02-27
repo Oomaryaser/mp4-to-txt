@@ -9,11 +9,7 @@
     "routes": [
         {
             "src": "/(.*)",
-            "dest": "api/index.py",
-            "headers": {
-                "Cross-Origin-Embedder-Policy": "require-corp",
-                "Cross-Origin-Opener-Policy": "same-origin"
-            }
+            "dest": "api/index.py"
         }
     ]
 }
