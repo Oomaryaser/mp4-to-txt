@@ -55,10 +55,18 @@ def transcribe():
         segments = []
         if hasattr(result, 'segments') and result.segments:
             for seg in result.segments:
+                if isinstance(seg, dict):
+                    start = seg.get('start', 0)
+                    end = seg.get('end', 0)
+                    text = seg.get('text', '')
+                else:
+                    start = getattr(seg, 'start', 0)
+                    end = getattr(seg, 'end', 0)
+                    text = getattr(seg, 'text', '')
                 segments.append({
-                    'start': format_time(seg.get('start', seg.start) if isinstance(seg, dict) else seg.start),
-                    'end': format_time(seg.get('end', seg.end) if isinstance(seg, dict) else seg.end),
-                    'text': (seg.get('text', '') if isinstance(seg, dict) else seg.text).strip()
+                    'start': format_time(start),
+                    'end': format_time(end),
+                    'text': text.strip()
                 })
 
         return jsonify({
