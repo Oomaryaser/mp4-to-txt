@@ -505,8 +505,8 @@
                     }
                 }
 
-                // الخطوة 2: تقسيم الصوت إلى chunks (كل chunk ~3 دقائق = ~5.7MB PCM = ~3.5MB WAV)
-                const chunkSeconds = 180; // 3 دقائق لكل chunk
+                // الخطوة 2: تقسيم الصوت إلى chunks (90 ثانية × 16000 × 2 bytes = 2.88MB WAV)
+                const chunkSeconds = 90; // 90 ثانية لكل chunk = ~2.88MB آمن لـ Vercel
                 const chunkSamples = chunkSeconds * sampleRate;
                 const totalChunks = Math.ceil(monoData.length / chunkSamples);
 
