@@ -6,6 +6,10 @@
     <title>تحويل الفيديو إلى نص</title>
     <style>
         @media print {
+            @page {
+                margin: 15mm;
+                size: A4;
+            }
             body {
                 background: white !important;
                 color: black !important;
@@ -20,10 +24,9 @@
                 padding: 10mm !important;
                 backdrop-filter: none !important;
             }
-            h1 { color: #302b63 !important; -webkit-text-fill-color: #302b63 !important; background: none !important; }
-            .subtitle, .upload-area, .btn, .progress-container, .error-box,
+            h1, .subtitle, .upload-area, .btn, .progress-container, .error-box,
             .copy-btn, .download-btn, .tabs, #segmentsTab, #fullTab,
-            .result-header h3, .lang-badge { display: none !important; }
+            .result-header { display: none !important; }
             .result-container { display: block !important; margin-top: 0 !important; }
             #segmentsTab-print { display: block !important; }
             .print-section-title {
