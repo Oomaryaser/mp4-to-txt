@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحويل الفيديو إلى نص</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -249,6 +250,21 @@
             background: rgba(255, 255, 255, 0.2);
         }
 
+        .download-btn {
+            background: rgba(255, 210, 0, 0.15);
+            border: 1px solid rgba(255, 210, 0, 0.3);
+            color: #ffd200;
+            padding: 8px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.3s;
+        }
+
+        .download-btn:hover {
+            background: rgba(255, 210, 0, 0.3);
+        }
+
         .error-box {
             display: none;
             background: rgba(245, 87, 108, 0.15);
@@ -317,6 +333,7 @@
                 <div style="display:flex; gap:10px; align-items:center;">
                     <span class="lang-badge" id="langBadge"></span>
                     <button class="copy-btn" onclick="copyText()">📋 نسخ</button>
+                    <button class="download-btn" onclick="downloadPDF()">⬇️ PDF</button>
                 </div>
             </div>
 
@@ -624,6 +641,108 @@
                 btn.textContent = '✅ تم النسخ!';
                 setTimeout(() => btn.textContent = '📋 نسخ', 2000);
             });
+        }
+
+        function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 15;
+            const contentWidth = pageWidth - margin * 2;
+            let y = margin;
+
+            // ===== Header =====
+            doc.setFillColor(48, 43, 99);
+            doc.rect(0, 0, pageWidth, 28, 'F');
+            doc.setTextColor(255, 210, 0);
+            doc.setFontSize(16);
+            doc.text('Script Transcript', pageWidth / 2, 12, { align: 'center' });
+            doc.setFontSize(9);
+            doc.setTextColor(200, 200, 200);
+            const lang = document.getElementById('langBadge').textContent;
+            doc.text(`${lang}   |   ${new Date().toLocaleDateString('ar-SA')}`, pageWidth / 2, 22, { align: 'center' });
+
+            y = 38;
+
+            // ===== النص الكامل =====
+            doc.setFillColor(240, 240, 250);
+            doc.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
+            doc.setTextColor(48, 43, 99);
+            doc.setFontSize(11);
+            doc.text('النص الكامل', margin + 4, y + 5.5);
+            y += 13;
+
+            doc.setTextColor(30, 30, 30);
+            doc.setFontSize(10);
+            const fullLines = doc.splitTextToSize(fullTranscript, contentWidth);
+            for (const line of fullLines) {
+                if (y + 7 > pageHeight - margin) { doc.addPage(); y = margin; }
+                doc.text(line, margin, y);
+                y += 6;
+            }
+
+            y += 8;
+
+            // ===== التوقيتات =====
+            const segments = document.querySelectorAll('#segmentsBox .segment');
+            if (segments.length > 0) {
+                if (y + 10 > pageHeight - margin) { doc.addPage(); y = margin; }
+
+                doc.setFillColor(240, 240, 250);
+                doc.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
+                doc.setTextColor(48, 43, 99);
+                doc.setFontSize(11);
+                doc.text('النص مع التوقيتات', margin + 4, y + 5.5);
+                y += 13;
+
+                let rowIndex = 0;
+                for (const seg of segments) {
+                    const time = seg.querySelector('.time').textContent.trim();
+                    const text = seg.querySelector('.text').textContent.trim();
+
+                    if (y + 9 > pageHeight - margin) { doc.addPage(); y = margin; }
+
+                    // صف ملون بالتناوب
+                    if (rowIndex % 2 === 0) {
+                        doc.setFillColor(248, 248, 255);
+                        doc.rect(margin, y - 4, contentWidth, 8, 'F');
+                    }
+
+                    // وقت
+                    doc.setTextColor(180, 50, 180);
+                    doc.setFontSize(8);
+                    doc.text(time, margin + 2, y + 1);
+
+                    // نص
+                    doc.setTextColor(30, 30, 30);
+                    doc.setFontSize(9.5);
+                    const segLines = doc.splitTextToSize(text, contentWidth - 35);
+                    doc.text(segLines[0] || '', margin + 36, y + 1);
+
+                    y += 8;
+                    rowIndex++;
+
+                    // أسطر إضافية إذا كان النص طويل
+                    for (let li = 1; li < segLines.length; li++) {
+                        if (y + 7 > pageHeight - margin) { doc.addPage(); y = margin; }
+                        doc.text(segLines[li], margin + 36, y);
+                        y += 6;
+                    }
+                }
+            }
+
+            // ===== Footer =====
+            const totalPages = doc.internal.getNumberOfPages();
+            for (let p = 1; p <= totalPages; p++) {
+                doc.setPage(p);
+                doc.setFontSize(8);
+                doc.setTextColor(150, 150, 150);
+                doc.text(`${p} / ${totalPages}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+            }
+
+            doc.save('transcript.pdf');
         }
     </script>
 </body>
