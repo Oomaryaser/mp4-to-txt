@@ -474,62 +474,82 @@
             errorBox.style.display = 'none';
 
             try {
-                let audioFile;
+                // الخطوة 1: استخراج الصوت
+                progressText.textContent = '🎵 جاري استخراج الصوت من الفيديو...';
+                let audioData; // Float32Array
+                let sampleRate = 16000;
 
-                // إذا الملف أصلاً صوت وحجمه أقل من 4MB، نرسله مباشرة
                 const isAudio = selectedFile.type.startsWith('audio/');
                 const isSmall = selectedFile.size < 4 * 1024 * 1024;
 
                 if (isAudio && isSmall) {
-                    audioFile = selectedFile;
-                    progressText.textContent = '🎵 الملف صوتي وخفيف، يتم إرساله مباشرة...';
-                } else {
-                    // استخراج الصوت في المتصفح
-                    audioFile = await extractAudioAsWav(selectedFile);
-                    const audioSizeMB = (audioFile.size / (1024 * 1024)).toFixed(2);
-                    console.log(`✅ تم استخراج الصوت: ${audioSizeMB} MB`);
-                    progressText.textContent = `✅ تم استخراج الصوت (${audioSizeMB} MB)، جاري الإرسال...`;
+                    // إرسال مباشر
+                    progressText.textContent = '📤 جاري رفع الصوت وتحويله إلى نص...';
+                    const result = await sendChunk(selectedFile, 1, 1);
+                    displayResults(result.transcript, result.language, result.segments);
+                    return;
                 }
 
-                // التحقق إن الصوت المستخرج ما يتجاوز حد Vercel
-                if (audioFile.size > 4.5 * 1024 * 1024) {
-                    throw new Error('حجم الصوت المستخرج أكبر من 4.5 MB. جرب ملف أقصر.');
+                // استخراج الصوت الخام
+                const arrayBuffer = await selectedFile.arrayBuffer();
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate });
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                audioContext.close();
+
+                // تحويل إلى مونو
+                const monoData = new Float32Array(audioBuffer.length);
+                for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+                    const channelData = audioBuffer.getChannelData(ch);
+                    for (let i = 0; i < audioBuffer.length; i++) {
+                        monoData[i] += channelData[i] / audioBuffer.numberOfChannels;
+                    }
                 }
 
-                // إرسال الصوت للسيرفر
-                progressText.textContent = '📤 جاري رفع الصوت وتحويله إلى نص...';
+                // الخطوة 2: تقسيم الصوت إلى chunks (كل chunk ~3 دقائق = ~5.7MB PCM = ~3.5MB WAV)
+                const chunkSeconds = 180; // 3 دقائق لكل chunk
+                const chunkSamples = chunkSeconds * sampleRate;
+                const totalChunks = Math.ceil(monoData.length / chunkSamples);
 
-                const formData = new FormData();
-                formData.append('video', audioFile);
+                console.log(`📊 إجمالي المدة: ${(monoData.length/sampleRate/60).toFixed(1)} دقيقة → ${totalChunks} أجزاء`);
 
-                const response = await fetch('/transcribe', {
-                    method: 'POST',
-                    body: formData
-                });
+                let allTranscripts = [];
+                let allSegments = [];
+                let detectedLanguage = 'auto';
+                let segmentTimeOffset = 0;
 
-                const data = await response.json();
+                for (let i = 0; i < totalChunks; i++) {
+                    progressText.textContent = `📤 جاري معالجة الجزء ${i + 1} من ${totalChunks}...`;
 
-                if (data.error) {
-                    throw new Error(data.error);
+                    const start = i * chunkSamples;
+                    const end = Math.min(start + chunkSamples, monoData.length);
+                    const chunkData = monoData.slice(start, end);
+
+                    const wavBlob = encodeWAV(chunkData, sampleRate);
+                    const chunkFile = new File([wavBlob], `chunk_${i}.wav`, { type: 'audio/wav' });
+
+                    console.log(`📦 Chunk ${i+1}: ${(chunkFile.size/1024/1024).toFixed(2)} MB`);
+
+                    const result = await sendChunk(chunkFile, i + 1, totalChunks);
+
+                    allTranscripts.push(result.transcript);
+                    if (result.language) detectedLanguage = result.language;
+
+                    // إضافة التوقيتات مع offset
+                    if (result.segments) {
+                        result.segments.forEach(seg => {
+                            allSegments.push({
+                                start: addTimeOffset(seg.start, segmentTimeOffset),
+                                end: addTimeOffset(seg.end, segmentTimeOffset),
+                                text: seg.text
+                            });
+                        });
+                    }
+
+                    segmentTimeOffset += (end - start) / sampleRate;
                 }
 
-                fullTranscript = data.transcript;
-                document.getElementById('transcriptBox').textContent = data.transcript;
-                document.getElementById('langBadge').textContent = `اللغة: ${data.language}`;
+                displayResults(allTranscripts.join(' '), detectedLanguage, allSegments);
 
-                // عرض المقاطع مع التوقيتات
-                const segmentsBox = document.getElementById('segmentsBox');
-                segmentsBox.innerHTML = '';
-                data.segments.forEach(seg => {
-                    segmentsBox.innerHTML += `
-                        <div class="segment">
-                            <span class="time">${seg.start} → ${seg.end}</span>
-                            <span class="text">${seg.text}</span>
-                        </div>
-                    `;
-                });
-
-                resultContainer.style.display = 'block';
             } catch (err) {
                 errorBox.textContent = `❌ خطأ: ${err.message}`;
                 errorBox.style.display = 'block';
@@ -538,6 +558,52 @@
                 transcribeBtn.disabled = false;
             }
         });
+
+        async function sendChunk(audioFile, chunkNum, totalChunks) {
+            const formData = new FormData();
+            formData.append('video', audioFile);
+
+            const response = await fetch('/transcribe', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+            if (data.error) throw new Error(`الجزء ${chunkNum}: ${data.error}`);
+            return data;
+        }
+
+        function addTimeOffset(timeStr, offsetSeconds) {
+            // timeStr صيغة mm:ss
+            const parts = timeStr.split(':');
+            const totalSecs = parseInt(parts[0]) * 60 + parseInt(parts[1]) + offsetSeconds;
+            return formatTime(totalSecs);
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function displayResults(transcript, language, segments) {
+            fullTranscript = transcript;
+            document.getElementById('transcriptBox').textContent = transcript;
+            document.getElementById('langBadge').textContent = `اللغة: ${language}`;
+
+            const segmentsBox = document.getElementById('segmentsBox');
+            segmentsBox.innerHTML = '';
+            segments.forEach(seg => {
+                segmentsBox.innerHTML += `
+                    <div class="segment">
+                        <span class="time">${seg.start} → ${seg.end}</span>
+                        <span class="text">${seg.text}</span>
+                    </div>
+                `;
+            });
+
+            resultContainer.style.display = 'block';
+        }
 
         function showTab(tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
