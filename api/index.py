@@ -5,7 +5,7 @@ from flask import Flask, request, render_template, jsonify
 from groq import Groq
 
 app = Flask(__name__, template_folder='../templates')
-app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024  # 25 MB max (حد Groq)
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB max (الصوت MP3 بعد الضغط بالمتصفح)
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 

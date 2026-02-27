@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحويل الفيديو إلى نص</title>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -291,7 +293,7 @@
 <body>
     <div class="container">
         <h1>🎬 تحويل الفيديو إلى نص</h1>
-        <p class="subtitle">ارفع ملف فيديو أو صوت (حد أقصى 25MB) وسيتم استخراج النص تلقائياً</p>
+        <p class="subtitle">ارفع ملف فيديو أو صوت (حد أقصى 100MB) وسيتم استخراج الصوت وتحويله إلى نص تلقائياً</p>
 
         <div class="upload-area" id="uploadArea">
             <div class="icon">📁</div>
@@ -340,11 +342,72 @@
         const fileName = document.getElementById('fileName');
         const transcribeBtn = document.getElementById('transcribeBtn');
         const progressContainer = document.getElementById('progressContainer');
+        const progressText = document.getElementById('progressText');
         const resultContainer = document.getElementById('resultContainer');
         const errorBox = document.getElementById('errorBox');
         let selectedFile = null;
         let fullTranscript = '';
 
+        // ========== FFmpeg Setup ==========
+        const { FFmpeg } = FFmpegWASM;
+        const { fetchFile } = FFmpegUtil;
+        let ffmpeg = null;
+        let ffmpegLoaded = false;
+
+        async function loadFFmpeg() {
+            if (ffmpegLoaded) return;
+            ffmpeg = new FFmpeg();
+            ffmpeg.on('log', ({ message }) => {
+                console.log('[FFmpeg]', message);
+            });
+            ffmpeg.on('progress', ({ progress }) => {
+                const pct = Math.round(progress * 100);
+                progressText.textContent = `🎵 جاري استخراج الصوت... ${pct}%`;
+            });
+            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+            await ffmpeg.load({
+                coreURL: `${baseURL}/ffmpeg-core.js`,
+                wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+            });
+            ffmpegLoaded = true;
+        }
+
+        async function extractAudioAsMP3(file) {
+            await loadFFmpeg();
+
+            const inputName = 'input' + getExtension(file.name);
+            const outputName = 'output.mp3';
+
+            // كتابة الملف داخل FFmpeg
+            await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+            // استخراج الصوت وتحويله MP3 بجودة مناسبة (bitrate 64k عشان يكون خفيف)
+            await ffmpeg.exec([
+                '-i', inputName,
+                '-vn',                // بدون فيديو
+                '-acodec', 'libmp3lame',
+                '-ab', '64k',         // 64kbps كافي للكلام
+                '-ar', '16000',       // 16kHz كافي لـ Whisper
+                '-ac', '1',           // مونو (قناة وحدة)
+                outputName
+            ]);
+
+            // قراءة الملف الناتج
+            const data = await ffmpeg.readFile(outputName);
+
+            // تنظيف
+            await ffmpeg.deleteFile(inputName);
+            await ffmpeg.deleteFile(outputName);
+
+            return new File([data.buffer], 'audio.mp3', { type: 'audio/mpeg' });
+        }
+
+        function getExtension(filename) {
+            const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+            return ext || '.mp4';
+        }
+
+        // ========== UI Events ==========
         uploadArea.addEventListener('click', () => fileInput.click());
 
         uploadArea.addEventListener('dragover', (e) => {
@@ -372,8 +435,8 @@
 
         function handleFile(file) {
             const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-            if (file.size > 25 * 1024 * 1024) {
-                errorBox.textContent = `❌ حجم الملف (${sizeMB} MB) أكبر من الحد المسموح (25 MB)`;
+            if (file.size > 100 * 1024 * 1024) {
+                errorBox.textContent = `❌ حجم الملف (${sizeMB} MB) أكبر من الحد المسموح (100 MB)`;
                 errorBox.style.display = 'block';
                 return;
             }
@@ -392,10 +455,31 @@
             resultContainer.style.display = 'none';
             errorBox.style.display = 'none';
 
-            const formData = new FormData();
-            formData.append('video', selectedFile);
-
             try {
+                // === الخطوة 1: استخراج الصوت MP3 في المتصفح ===
+                progressText.textContent = '⏳ جاري تحميل محرك استخراج الصوت...';
+                let audioFile;
+
+                // إذا الملف أصلاً صوت وحجمه صغير، نرسله مباشرة
+                const isAudio = selectedFile.type.startsWith('audio/');
+                const isSmall = selectedFile.size < 4 * 1024 * 1024; // أقل من 4MB
+
+                if (isAudio && isSmall) {
+                    audioFile = selectedFile;
+                    progressText.textContent = '🎵 الملف صوتي وخفيف، يتم إرساله مباشرة...';
+                } else {
+                    audioFile = await extractAudioAsMP3(selectedFile);
+                    const audioSizeMB = (audioFile.size / (1024 * 1024)).toFixed(2);
+                    console.log(`✅ تم استخراج الصوت: ${audioSizeMB} MB`);
+                    progressText.textContent = `✅ تم استخراج الصوت (${audioSizeMB} MB)، جاري الإرسال...`;
+                }
+
+                // === الخطوة 2: إرسال الصوت للسيرفر ===
+                progressText.textContent = '📤 جاري رفع الصوت وتحويله إلى نص...';
+
+                const formData = new FormData();
+                formData.append('video', audioFile);
+
                 const response = await fetch('/transcribe', {
                     method: 'POST',
                     body: formData
