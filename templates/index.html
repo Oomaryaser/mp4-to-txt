@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحويل الفيديو إلى نص</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            color: #fff;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 40px;
+            max-width: 700px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2em;
+            background: linear-gradient(120deg, #f093fb, #f5576c, #ffd200);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 30px;
+            font-size: 0.95em;
+        }
+
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 50px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .upload-area:hover {
+            border-color: #f5576c;
+            background: rgba(245, 87, 108, 0.05);
+        }
+
+        .upload-area.dragover {
+            border-color: #ffd200;
+            background: rgba(255, 210, 0, 0.05);
+        }
+
+        .upload-area .icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .upload-area p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.05em;
+        }
+
+        .upload-area .file-name {
+            color: #ffd200;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #f5576c, #f093fb);
+            color: white;
+            letter-spacing: 0.5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(245, 87, 108, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .progress-container {
+            display: none;
+            margin: 25px 0;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f5576c, #ffd200);
+            border-radius: 10px;
+            animation: progress-animation 2s ease-in-out infinite;
+            width: 40%;
+        }
+
+        @keyframes progress-animation {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(350%); }
+        }
+
+        .progress-text {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.95em;
+        }
+
+        .result-container {
+            display: none;
+            margin-top: 25px;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .result-header h3 {
+            color: #ffd200;
+            font-size: 1.2em;
+        }
+
+        .lang-badge {
+            background: rgba(255, 210, 0, 0.15);
+            color: #ffd200;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 0.85em;
+        }
+
+        .transcript-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            line-height: 1.8;
+            font-size: 1.05em;
+            color: rgba(255, 255, 255, 0.9);
+            white-space: pre-wrap;
+            direction: auto;
+        }
+
+        .transcript-box::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .transcript-box::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+
+        .segments-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .segment {
+            display: flex;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            direction: auto;
+        }
+
+        .segment:last-child {
+            border-bottom: none;
+        }
+
+        .segment .time {
+            color: #f093fb;
+            font-size: 0.85em;
+            white-space: nowrap;
+            min-width: 90px;
+            font-family: monospace;
+            direction: ltr;
+            text-align: center;
+        }
+
+        .segment .text {
+            color: rgba(255, 255, 255, 0.85);
+            line-height: 1.6;
+        }
+
+        .copy-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #fff;
+            padding: 8px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .error-box {
+            display: none;
+            background: rgba(245, 87, 108, 0.15);
+            border: 1px solid rgba(245, 87, 108, 0.3);
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-top: 20px;
+            color: #f5576c;
+            text-align: center;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .tab {
+            padding: 8px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+            transition: all 0.3s;
+            font-size: 0.9em;
+        }
+
+        .tab.active {
+            background: rgba(245, 87, 108, 0.2);
+            border-color: #f5576c;
+            color: #fff;
+        }
+
+        .tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 تحويل الفيديو إلى نص</h1>
+        <p class="subtitle">ارفع ملف فيديو أو صوت (حد أقصى 25MB) وسيتم استخراج النص تلقائياً</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="icon">📁</div>
+            <p>اسحب الفيديو هنا أو اضغط لاختيار ملف</p>
+            <div class="file-name" id="fileName"></div>
+        </div>
+        <input type="file" id="fileInput" accept="video/mp4,video/*,audio/*">
+
+        <button class="btn" id="transcribeBtn" disabled>🚀 استخراج النص</button>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <p class="progress-text" id="progressText">⏳ جاري استخراج الصوت وتحويله إلى نص... يرجى الانتظار</p>
+        </div>
+
+        <div class="error-box" id="errorBox"></div>
+
+        <div class="result-container" id="resultContainer">
+            <div class="result-header">
+                <h3>📝 النص المستخرج</h3>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <span class="lang-badge" id="langBadge"></span>
+                    <button class="copy-btn" onclick="copyText()">📋 نسخ</button>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('full')">النص الكامل</div>
+                <div class="tab" onclick="showTab('segments')">مع التوقيتات</div>
+            </div>
+
+            <div id="fullTab">
+                <div class="transcript-box" id="transcriptBox"></div>
+            </div>
+            <div id="segmentsTab" style="display:none;">
+                <div class="segments-box" id="segmentsBox"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const transcribeBtn = document.getElementById('transcribeBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const resultContainer = document.getElementById('resultContainer');
+        const errorBox = document.getElementById('errorBox');
+        let selectedFile = null;
+        let fullTranscript = '';
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) {
+                handleFile(fileInput.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+            if (file.size > 25 * 1024 * 1024) {
+                errorBox.textContent = `❌ حجم الملف (${sizeMB} MB) أكبر من الحد المسموح (25 MB)`;
+                errorBox.style.display = 'block';
+                return;
+            }
+            selectedFile = file;
+            fileName.textContent = `✅ ${file.name} (${sizeMB} MB)`;
+            transcribeBtn.disabled = false;
+            resultContainer.style.display = 'none';
+            errorBox.style.display = 'none';
+        }
+
+        transcribeBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            transcribeBtn.disabled = true;
+            progressContainer.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorBox.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('video', selectedFile);
+
+            try {
+                const response = await fetch('/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                fullTranscript = data.transcript;
+                document.getElementById('transcriptBox').textContent = data.transcript;
+                document.getElementById('langBadge').textContent = `اللغة: ${data.language}`;
+
+                // عرض المقاطع مع التوقيتات
+                const segmentsBox = document.getElementById('segmentsBox');
+                segmentsBox.innerHTML = '';
+                data.segments.forEach(seg => {
+                    segmentsBox.innerHTML += `
+                        <div class="segment">
+                            <span class="time">${seg.start} → ${seg.end}</span>
+                            <span class="text">${seg.text}</span>
+                        </div>
+                    `;
+                });
+
+                resultContainer.style.display = 'block';
+            } catch (err) {
+                errorBox.textContent = `❌ خطأ: ${err.message}`;
+                errorBox.style.display = 'block';
+            } finally {
+                progressContainer.style.display = 'none';
+                transcribeBtn.disabled = false;
+            }
+        });
+
+        function showTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            if (tab === 'full') {
+                document.getElementById('fullTab').style.display = 'block';
+                document.getElementById('segmentsTab').style.display = 'none';
+                document.querySelectorAll('.tab')[0].classList.add('active');
+            } else {
+                document.getElementById('fullTab').style.display = 'none';
+                document.getElementById('segmentsTab').style.display = 'block';
+                document.querySelectorAll('.tab')[1].classList.add('active');
+            }
+        }
+
+        function copyText() {
+            navigator.clipboard.writeText(fullTranscript).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = '✅ تم النسخ!';
+                setTimeout(() => btn.textContent = '📋 نسخ', 2000);
+            });
+        }
+    </script>
+</body>
+</html>
